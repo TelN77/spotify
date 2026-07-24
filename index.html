@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <title>Album Shuffle — アルバム単位シャッフル</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔀</text></svg>">
+</head>
+<body>
+
+<header class="app-header">
+  <h1>🔀 Album Shuffle</h1>
+  <div class="header-right">
+    <span id="user-name" class="user-name"></span>
+    <button id="btn-logout" class="btn btn-ghost hidden">ログアウト</button>
+  </div>
+</header>
+
+<!-- 初回セットアップ: Spotify アプリの Client ID を登録 -->
+<section id="screen-setup" class="screen hidden">
+  <div class="card">
+    <h2>初期設定</h2>
+    <p>
+      Spotify Developer Dashboard で作成したアプリの <strong>Client ID</strong> を入力してください。
+      設定方法は <a href="https://github.com/teln77/spotify#readme" target="_blank" rel="noopener">README</a> を参照。
+    </p>
+    <p class="note">Redirect URI にはこのページのURL <code id="redirect-uri-display"></code> を登録してください。</p>
+    <form id="form-client-id">
+      <input type="text" id="input-client-id" placeholder="Client ID" autocomplete="off" required>
+      <button type="submit" class="btn btn-primary">保存</button>
+    </form>
+  </div>
+</section>
+
+<!-- ログイン -->
+<section id="screen-login" class="screen hidden">
+  <div class="card center">
+    <h2>Spotifyと接続</h2>
+    <p>保存済みアルバムの読み取りと、専用プレイリスト「Album Shuffle」の作成・更新を許可してください。</p>
+    <button id="btn-login" class="btn btn-primary btn-large">Spotifyでログイン</button>
+    <button id="btn-change-client" class="btn btn-ghost">Client IDを変更</button>
+  </div>
+</section>
+
+<!-- メイン -->
+<section id="screen-app" class="screen hidden">
+
+  <!-- スマホ用タブ(PCでは非表示・2ペイン表示) -->
+  <nav class="tabbar" role="tablist">
+    <button id="tab-manage" class="tab active" role="tab" aria-selected="true">管理中 <span id="count-manage" class="count"></span></button>
+    <button id="tab-library" class="tab" role="tab" aria-selected="false">アルバム追加</button>
+  </nav>
+
+  <div class="panes">
+    <!-- 管理対象アルバム一覧 -->
+    <div id="pane-manage" class="pane" role="tabpanel">
+      <div class="pane-head">
+        <h2>管理中のアルバム <span id="count-manage-pc" class="count"></span></h2>
+        <button id="btn-shuffle" class="btn btn-primary btn-shuffle">🔀 シャッフル実行</button>
+      </div>
+      <div id="shuffle-result" class="result hidden"></div>
+      <ul id="managed-list" class="album-list"></ul>
+      <p id="managed-empty" class="empty hidden">
+        まだアルバムがありません。「アルバム追加」から選んでください。
+      </p>
+    </div>
+
+    <!-- アルバム追加(保存済みアルバムから選択) -->
+    <div id="pane-library" class="pane" role="tabpanel">
+      <div class="pane-head">
+        <h2>保存済みアルバムから追加</h2>
+      </div>
+      <div class="search-row">
+        <input type="search" id="input-search" placeholder="アルバム名・アーティスト名で検索 ( / でフォーカス)" autocomplete="off">
+      </div>
+      <div class="filter-row" id="filter-row">
+        <button class="chip active" data-type="all">すべて</button>
+        <button class="chip" data-type="album">アルバム</button>
+        <button class="chip" data-type="single">シングル・EP</button>
+        <button class="chip" data-type="compilation">コンピレーション</button>
+      </div>
+      <div id="library-list" class="library-list"></div>
+      <p id="library-empty" class="empty hidden">該当するアルバムがありません。</p>
+    </div>
+  </div>
+
+  <!-- スマホでは画面下部に固定表示のシャッフルボタン -->
+  <div class="fab-bar">
+    <button id="btn-shuffle-fab" class="btn btn-primary btn-large">🔀 シャッフル実行</button>
+  </div>
+</section>
+
+<!-- 処理中プログレス -->
+<div id="progress" class="overlay hidden">
+  <div class="progress-box">
+    <div class="spinner"></div>
+    <p id="progress-msg">処理中…</p>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
