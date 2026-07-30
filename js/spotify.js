@@ -20,14 +20,49 @@ export const getMe = () => apiFetch('/me');
 
 export async function getSavedAlbums(onPage) {
   const entries = await getAllItems('/me/albums?limit=50', onPage);
-  return entries.map(({ album }) => ({
-    id: album.id,
-    name: album.name,
-    artists: album.artists.map((a) => a.name),
-    image: smallestImage(album.images),
-    albumType: album.album_type, // album / single(EP含む) / compilation
-    totalTracks: album.total_tracks,
-  }));
+  // 地域制限等で album が null の項目が混ざることがあるため除外(全体の取得は止めない)
+  return entries
+    .filter((e) => e && e.album && e.album.id)
+    .map(({ album }) => ({
+      id: album.id,
+      name: album.name,
+      artists: (album.artists || []).map((a) => a.name),
+      image: smallestImage(album.images),
+      albumType: album.album_type, // album / single(EP含む) / compilation
+      totalTracks: album.total_tracks,
+      source: 'saved',
+    }));
+}
+
+// 「いいねした曲」(GET /me/tracks)を全件走査し、収録アルバムを収集する。
+// アルバム自体を保存していなくても曲だけ♡している場合の取りこぼしを補う。
+// excludeIds に含まれるアルバムは除外。onProgress(走査済み曲数, 総曲数) を毎ページ呼ぶ。
+export async function getLikedTrackAlbums(excludeIds, onProgress) {
+  const found = new Map();
+  let url = '/me/tracks?limit=50';
+  let scanned = 0;
+  while (url) {
+    const page = await apiFetch(url);
+    for (const entry of page.items) {
+      const track = entry?.track;
+      const album = track?.album;
+      if (!track || track.is_local || !album) continue;
+      if (excludeIds.has(album.id) || found.has(album.id)) continue;
+      found.set(album.id, {
+        id: album.id,
+        name: album.name,
+        artists: (album.artists || []).map((a) => a.name),
+        image: smallestImage(album.images),
+        albumType: album.album_type,
+        totalTracks: album.total_tracks,
+        source: 'liked', // ♡曲由来(保存済みアルバムではない)
+      });
+    }
+    scanned += page.items.length;
+    if (onProgress) onProgress(scanned, page.total ?? scanned);
+    url = page.next;
+  }
+  return [...found.values()];
 }
 
 // アルバムの全トラックURIを取得。追加時は必ずこのURIを使う(要件3.1の注意:

@@ -21,14 +21,23 @@
 <!-- 初回セットアップ: Spotify アプリの Client ID を登録 -->
 <section id="screen-setup" class="screen hidden">
   <div class="card">
-    <h2>初期設定</h2>
-    <p>
-      Spotify Developer Dashboard で作成したアプリの <strong>Client ID</strong> を入力してください。
-      設定方法は <a href="https://github.com/teln77/spotify#readme" target="_blank" rel="noopener">README</a> を参照。
-    </p>
-    <p class="note">Redirect URI にはこのページのURL <code id="redirect-uri-display"></code> を登録してください。</p>
+    <h2>初期設定 — Client ID の取得</h2>
+    <p>初回のみ、Spotify側にこのアプリを登録して <strong>Client ID</strong> を取得します(3分ほど)。</p>
+    <ol class="steps">
+      <li><a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Spotify Developer Dashboard</a> を開き、普段のSpotifyアカウントでログイン</li>
+      <li><strong>Create app</strong> を押す(App name / Description は自由。例: Album Shuffle)</li>
+      <li><strong>Redirect URIs</strong> に下のURLを<strong>1文字も変えずに</strong>(末尾の <code>/</code> も含めて)貼り付けて <strong>Add</strong>
+        <div class="copy-row">
+          <code id="redirect-uri-display"></code>
+          <button type="button" id="btn-copy-uri" class="btn">コピー</button>
+        </div>
+      </li>
+      <li>「Which API/SDKs are you planning to use?」で <strong>Web API</strong> にチェックして <strong>Save</strong></li>
+      <li>作成したアプリの <strong>Settings</strong> に表示される <strong>Client ID</strong> をコピーして、下に貼り付けて保存</li>
+    </ol>
+    <p class="note">※ アプリ作成者のアカウントが Spotify Premium である必要があります(2026年2月以降のSpotify APIの仕様)。</p>
     <form id="form-client-id">
-      <input type="text" id="input-client-id" placeholder="Client ID" autocomplete="off" required>
+      <input type="text" id="input-client-id" placeholder="Client ID を貼り付け" autocomplete="off" required>
       <button type="submit" class="btn btn-primary">保存</button>
     </form>
   </div>
@@ -70,7 +79,8 @@
     <!-- アルバム追加(保存済みアルバムから選択) -->
     <div id="pane-library" class="pane" role="tabpanel">
       <div class="pane-head">
-        <h2>保存済みアルバムから追加</h2>
+        <h2>アルバムを追加 <span id="count-library" class="count"></span></h2>
+        <button id="btn-expand-all" class="btn btn-ghost btn-small">すべて開く</button>
       </div>
       <div class="search-row">
         <input type="search" id="input-search" placeholder="アルバム名・アーティスト名で検索 ( / でフォーカス)" autocomplete="off">
@@ -81,6 +91,7 @@
         <button class="chip" data-type="single">シングル・EP</button>
         <button class="chip" data-type="compilation">コンピレーション</button>
       </div>
+      <p id="liked-status" class="liked-status hidden"></p>
       <div id="library-list" class="library-list"></div>
       <p id="library-empty" class="empty hidden">該当するアルバムがありません。</p>
     </div>

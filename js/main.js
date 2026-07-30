@@ -7,10 +7,11 @@ import * as sp from './spotify.js';
 const state = {
   playlistId: null,
   managed: [],   // 管理対象アルバムブロック(プレイリストの現状態)
-  saved: [],     // 保存済みアルバム一覧
+  saved: [],     // 追加候補アルバム一覧(保存済み + ♡曲由来)
   query: '',
   typeFilter: 'all',
   busy: false,
+  expanded: new Set(), // 開いているアーティストグループ(デフォルトは全て折りたたみ)
 };
 
 const $ = (id) => document.getElementById(id);
@@ -102,20 +103,40 @@ const TYPE_LABEL = { album: 'アルバム', single: 'シングル/EP', compilati
 function renderLibrary() {
   const albums = visibleSavedAlbums();
   const managedIds = new Set(state.managed.map((b) => b.id));
+  const searching = state.query.trim().length > 0;
 
-  // アーティストごとにグルーピング(主アーティスト名、五十音/アルファベット順)
+  // アーティストごとにグルーピングし、アルバム数の多い順に並べる
+  // (よく聴くアーティストほど上に来やすく、1〜2枚のアーティストは下にまとまる)
   const groups = new Map();
   for (const a of albums) {
     const key = a.artists[0] || '(不明)';
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(a);
   }
-  const sorted = [...groups.entries()].sort((x, y) => x[0].localeCompare(y[0], 'ja'));
+  const sorted = [...groups.entries()].sort(
+    (x, y) => y[1].length - x[1].length || x[0].localeCompare(y[0], 'ja'));
+
+  // 取りこぼしを確認できるよう総数を表示(絞り込み中は「表示中/全体」)
+  $('count-library').textContent = albums.length === state.saved.length
+    ? `(${state.saved.length}枚)`
+    : `(${albums.length}/${state.saved.length}枚)`;
+  // 全グループ展開中かどうかでボタンのラベルを切り替える
+  $('btn-expand-all').textContent =
+    state.expanded.size >= sorted.length && sorted.length > 0 ? 'すべて閉じる' : 'すべて開く';
 
   $('library-empty').classList.toggle('hidden', albums.length > 0);
-  $('library-list').innerHTML = sorted.map(([artist, items]) => `
+  $('library-list').innerHTML = sorted.map(([artist, items]) => {
+    // デフォルトは折りたたみ。検索中は該当グループを自動展開する
+    const open = searching || state.expanded.has(artist);
+    const addedCount = items.filter((a) => managedIds.has(a.id)).length;
+    return `
     <section class="artist-group">
-      <h3 class="artist-head">${esc(artist)}</h3>
+      <button type="button" class="artist-toggle" data-artist="${esc(artist)}" aria-expanded="${open}">
+        <span class="arrow">${open ? '▾' : '▸'}</span>
+        <span class="artist-toggle-name">${esc(artist)}</span>
+        <span class="artist-toggle-count">${addedCount ? `✓${addedCount}/` : ''}${items.length}枚</span>
+      </button>
+      ${!open ? '' : `
       <ul class="album-list">
         ${items.map((a) => {
           const added = managedIds.has(a.id);
@@ -125,13 +146,14 @@ function renderLibrary() {
             <div class="meta">
               <div class="album-name" title="${esc(a.name)}">${esc(a.name)}</div>
               <div class="artist-name">${esc(a.artists.join(', '))}</div>
-              <div class="track-count">${TYPE_LABEL[a.albumType] || esc(a.albumType)} ・ ${a.totalTracks}曲</div>
+              <div class="track-count">${TYPE_LABEL[a.albumType] || esc(a.albumType)} ・ ${a.totalTracks}曲${a.source === 'liked' ? ' ・ ♡曲より' : ''}</div>
             </div>
             <span class="add-state">${added ? '✓ 追加済み' : '＋ 追加'}</span>
           </li>`;
         }).join('')}
-      </ul>
-    </section>`).join('');
+      </ul>`}
+    </section>`;
+  }).join('');
 }
 
 function renderAll() { renderManaged(); renderLibrary(); }
@@ -227,6 +249,31 @@ async function loadAppData() {
   hideProgress();
   showScreen('app');
   showTab(state.managed.length ? 'manage' : 'library');
+
+  loadLikedAlbums(); // ♡曲由来アルバムはバックグラウンドで追加読み込み(待たない)
+}
+
+// 「いいねした曲」を走査して、保存していないアルバムも追加候補に載せる。
+// 曲数が多いと時間がかかるため、画面はブロックせずステータス表示のみ。
+async function loadLikedAlbums() {
+  const status = $('liked-status');
+  status.classList.remove('hidden');
+  try {
+    const knownIds = new Set(state.saved.map((a) => a.id));
+    const likedAlbums = await sp.getLikedTrackAlbums(knownIds, (scanned, total) => {
+      status.textContent = `♡いいねした曲からもアルバムを探しています… ${scanned}/${total}曲`;
+    });
+    if (likedAlbums.length) {
+      state.saved.push(...likedAlbums);
+      renderLibrary();
+      status.textContent = `保存済みアルバムに加え、♡いいねした曲から ${likedAlbums.length} 枚を追加表示中(「♡曲より」と表示)`;
+    } else {
+      status.classList.add('hidden');
+    }
+  } catch (e) {
+    console.warn('liked albums load failed:', e);
+    status.textContent = '♡いいねした曲からの読み込みは失敗しました(保存済みアルバムは表示されています)';
+  }
 }
 
 function bindEvents() {
@@ -239,6 +286,14 @@ function bindEvents() {
   });
 
   $('btn-login').addEventListener('click', () => auth.beginLogin().catch(handleError));
+  $('btn-copy-uri').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(auth.redirectUri());
+      toast('Redirect URI をコピーしました');
+    } catch {
+      toast('コピーできませんでした。手動で選択してください', true);
+    }
+  });
   $('btn-change-client').addEventListener('click', () => {
     $('input-client-id').value = auth.getClientId();
     showScreen('setup');
@@ -257,6 +312,15 @@ function bindEvents() {
   });
 
   $('library-list').addEventListener('click', (e) => {
+    // アーティスト行タップで開閉
+    const toggle = e.target.closest('[data-artist]');
+    if (toggle) {
+      const artist = toggle.dataset.artist;
+      if (state.expanded.has(artist)) state.expanded.delete(artist);
+      else state.expanded.add(artist);
+      renderLibrary();
+      return;
+    }
     const card = e.target.closest('[data-add]');
     if (card) addAlbum(card.dataset.add);
   });
@@ -289,6 +353,13 @@ function bindEvents() {
       showTab('library');
       search.focus();
     }
+  });
+
+  $('btn-expand-all').addEventListener('click', () => {
+    const artists = new Set(visibleSavedAlbums().map((a) => a.artists[0] || '(不明)'));
+    if (state.expanded.size >= artists.size && artists.size > 0) state.expanded.clear();
+    else state.expanded = artists;
+    renderLibrary();
   });
 
   $('filter-row').addEventListener('click', (e) => {
