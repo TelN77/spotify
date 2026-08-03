@@ -86,9 +86,11 @@
     <div id="host-body" class="hidden">
       <div id="auth-area"></div>
       <div class="field">
-        <label>誰もリクエストしていない時に流すプレイリスト（URL貼り付け）</label>
-        <div class="search-row">
-          <input type="text" id="playlist-input" placeholder="https://open.spotify.com/playlist/...">
+        <label>誰もリクエストしていない時に流すプレイリスト</label>
+        <button id="host-pl-browse" class="btn btn-wide">📀 自分のプレイリスト一覧から選ぶ</button>
+        <ul id="host-pl-list" class="track-list"></ul>
+        <div class="search-row" style="margin-top:8px">
+          <input type="text" id="playlist-input" placeholder="またはURLを貼り付け">
           <button id="playlist-save" class="btn">設定</button>
         </div>
         <div id="playlist-info" class="muted"></div>

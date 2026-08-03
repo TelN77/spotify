@@ -157,8 +157,10 @@ async function apiWith(t, save, pathname, opts = {}, retried = false) {
   if (res.status === 204) return null;
   const text = await res.text();
   if (!res.ok) {
-    const err = new Error(`Spotify API ${res.status}: ${text.slice(0, 300)}`);
+    const endpoint = pathname.split('?')[0];
+    const err = new Error(`Spotify API ${res.status} (${endpoint}): ${text.slice(0, 300)}`);
     err.status = res.status;
+    console.error(`[spotify] ${res.status} ${endpoint} ${text.slice(0, 300)}`);
     throw err;
   }
   return text ? JSON.parse(text) : null;
@@ -362,8 +364,21 @@ function parsePlaylistId(input) {
   return null;
 }
 
-async function loadPlaylist(id) {
-  const meta = await api(`/playlists/${id}?fields=name,images`);
+async function loadPlaylist(id, knownMeta = null) {
+  // メタ情報の取得は403でも致命的でない(名前が出ないだけ)ので、曲一覧の取得を優先する
+  let meta = knownMeta;
+  if (!meta) {
+    try {
+      const m = await api(`/playlists/${id}?fields=name,images`);
+      meta = {
+        name: m.name,
+        image: m.images && m.images.length ? m.images[m.images.length - 1].url : null,
+      };
+    } catch (e) {
+      console.error('[playlist] メタ情報の取得に失敗(曲一覧の取得は続行):', e.message);
+      meta = { name: 'プレイリスト', image: null };
+    }
+  }
   const tracks = [];
   let url = `/playlists/${id}/tracks?limit=100&fields=next,items(${TRACK_FIELDS})`;
   while (url && tracks.length < 500) {
@@ -378,7 +393,7 @@ async function loadPlaylist(id) {
   fallback = {
     id,
     name: meta.name,
-    image: meta.images && meta.images.length ? meta.images[meta.images.length - 1].url : null,
+    image: meta.image,
     tracks,
     pointer: 0,
   };
@@ -683,12 +698,35 @@ app.post('/api/queue/:id/move', (req, res) => {
 
 // ---- ホスト操作 ----
 
+// ホスト自身のプレイリスト一覧(フォールバック用プレイリストの選択肢)
+app.get('/api/host/playlists', async (req, res) => {
+  try {
+    if (!tokens) return res.status(409).json({ error: 'ホストがまだSpotifyにログインしていません' });
+    const offset = Number(req.query.offset || 0);
+    const json = await api(`/me/playlists?limit=50&offset=${offset}`);
+    res.json({
+      playlists: (json.items || []).filter(Boolean).map((p) => ({
+        id: p.id,
+        name: p.name,
+        image: p.images && p.images.length ? p.images[p.images.length - 1].url : null,
+        count: p.tracks ? p.tracks.total : 0,
+        owner: p.owner ? p.owner.display_name : null,
+      })),
+      nextOffset: json.next ? offset + 50 : null,
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
 app.post('/api/playlist', async (req, res) => {
   try {
     if (!tokens) return res.status(409).json({ error: 'ホストがまだSpotifyにログインしていません' });
     const id = parsePlaylistId(req.body && req.body.playlist);
     if (!id) return res.status(400).json({ error: 'プレイリストのURLまたはIDを指定してください' });
-    await loadPlaylist(id);
+    // 一覧から選んだ場合は名前と画像が既に分かっているので、メタ取得APIを呼ばずに済ませる
+    const knownMeta = req.body && req.body.name ? { name: req.body.name, image: req.body.image || null } : null;
+    await loadPlaylist(id, knownMeta);
     broadcast();
     res.json({ ok: true, name: fallback.name, count: fallback.tracks.length });
   } catch (e) {

@@ -449,6 +449,48 @@ $('host-toggle').addEventListener('click', () => {
   $('host-toggle').querySelector('.chev').classList.toggle('open');
 });
 
+$('host-pl-browse').addEventListener('click', async () => {
+  const list = $('host-pl-list');
+  list.innerHTML = '<li class="muted">読み込み中…</li>';
+  try {
+    const json = await jsonFetch('/api/host/playlists');
+    if (!json.playlists.length) {
+      list.innerHTML = '<li class="muted">プレイリストが見つかりません</li>';
+      return;
+    }
+    list.innerHTML = json.playlists
+      .map(
+        (p, i) => `<li data-hostpl="${i}" style="cursor:pointer">
+          <img src="${esc(p.image || '')}" alt="" onerror="this.style.visibility='hidden'">
+          <div class="t-main">
+            <div class="t-name">${esc(p.name)}</div>
+            <div class="t-artist">${p.count}曲${p.owner ? ' / ' + esc(p.owner) : ''}</div>
+          </div>
+          <span class="muted">選ぶ</span>
+        </li>`
+      )
+      .join('');
+    list.querySelectorAll('[data-hostpl]').forEach((li) => {
+      li.addEventListener('click', async () => {
+        const p = json.playlists[Number(li.dataset.hostpl)];
+        $('playlist-info').textContent = '読み込み中…';
+        try {
+          await jsonFetch('/api/playlist', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ playlist: p.id, name: p.name, image: p.image }),
+          });
+          list.innerHTML = '';
+        } catch (e) {
+          $('playlist-info').textContent = 'エラー: ' + e.message;
+        }
+      });
+    });
+  } catch (e) {
+    list.innerHTML = `<li class="muted">${esc(e.message)}</li>`;
+  }
+});
+
 $('playlist-save').addEventListener('click', async () => {
   const v = $('playlist-input').value.trim();
   if (!v) return;
