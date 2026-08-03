@@ -123,9 +123,9 @@ h1 { font-size: 1.15rem; }
 .connect-area .btn { display: inline-block; margin-top: 10px; text-decoration: none; }
 .btn-wide { width: 100%; margin-top: 10px; }
 
-/* 独立スクロールする一覧(プレイリスト選択など) */
+/* 独立スクロールする一覧(曲さがし・プレイリスト選択など) */
 .scroll-box {
-  max-height: 260px;
+  max-height: 70vh;
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
@@ -137,12 +137,44 @@ h1 { font-size: 1.15rem; }
   border: 1px solid #333;
   padding: 0 8px;
 }
+/* 曲を探す一覧は既定で大きめに開く(高さはつまみで変更でき、端末に記憶される) */
+.resizable:not(:empty) {
+  height: 340px;
+  max-height: none;
+}
+
+/* 一覧の高さを変えるためのつまみ。マウスでも指でも動かせる */
+.drag-handle {
+  margin-top: 6px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: ns-resize;
+  touch-action: none; /* ドラッグ中にページがスクロールしないように */
+  user-select: none;
+  color: var(--muted);
+  font-size: 0.7rem;
+  border-radius: 8px;
+  background: #191919;
+  border: 1px solid #333;
+}
+.drag-handle:active { background: var(--card2); }
+.drag-handle::before {
+  content: '';
+  width: 34px;
+  height: 4px;
+  border-radius: 2px;
+  background: #555;
+}
 
 .btn-move {
   background: var(--card2); color: var(--text); width: 32px; height: 32px;
   border-radius: 50%; font-size: 0.95rem; padding: 0; flex-shrink: 0; border: none; cursor: pointer;
 }
 .btn-move:active { background: var(--green); color: #000; }
+.btn-move[disabled] { opacity: 0.25; pointer-events: none; }
 
 /* 入力 */
 .search-row { display: flex; gap: 8px; }

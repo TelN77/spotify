@@ -140,8 +140,10 @@ function trackRow(t, opts = {}) {
   if (opts.queued) tags.push('<span class="tag queued">投入済み</span>');
   const buttons = [];
   if (opts.movable && !opts.queued) {
-    buttons.push(`<button class="btn-move" data-move-up="${t.id}">↑</button>`);
-    buttons.push(`<button class="btn-move" data-move-down="${t.id}">↓</button>`);
+    const upDis = opts.canUp === false ? ' disabled' : '';
+    const downDis = opts.canDown === false ? ' disabled' : '';
+    buttons.push(`<button class="btn-move" data-move-up="${t.id}"${upDis}>↑</button>`);
+    buttons.push(`<button class="btn-move" data-move-down="${t.id}"${downDis}>↓</button>`);
   }
   if (opts.removable && !opts.queued) {
     buttons.push(`<button class="btn-remove" data-remove="${t.id}">✕</button>`);
@@ -220,26 +222,27 @@ function render() {
     $('progress-wrap').classList.add('hidden');
   }
 
-  // 次に再生
+  // 次に再生。自分が追加した曲はこの一覧から直接 並べ替え / 取り消し できる
   const preview = $('preview');
   const queuedId = state.queuedTrack ? state.queuedTrack.id : null;
+  const myIds = state.preview.filter((t) => t.clientId === clientId).map((t) => t.id);
   preview.innerHTML = state.preview
-    .map((t, i) => trackRow(t, { num: i + 1, queued: t.id === queuedId }))
+    .map((t, i) => {
+      const mine = t.clientId === clientId;
+      const pos = mine ? myIds.indexOf(t.id) : -1;
+      return trackRow(t, {
+        num: i + 1,
+        queued: t.id === queuedId,
+        movable: mine,
+        removable: mine,
+        // 自分の曲の中での端では、動かせない向きのボタンを無効にする
+        canUp: pos > 0,
+        canDown: pos >= 0 && pos < myIds.length - 1,
+      });
+    })
     .join('');
   $('preview-empty').classList.toggle('hidden', state.preview.length > 0);
-
-  // 自分のリクエスト(自分の中での順番 = addedAt順)
-  const mineList = state.pending
-    .filter((t) => t.clientId === clientId)
-    .sort((a, b) => a.addedAt - b.addedAt);
-  const mine = $('mine');
-  mine.innerHTML = mineList
-    .map((t, i) =>
-      trackRow(t, { num: i + 1, queued: t.queued, movable: true, removable: true })
-    )
-    .join('');
-  $('mine-empty').classList.toggle('hidden', mineList.length > 0);
-  bindListButtons(mine);
+  bindListButtons(preview);
 
   // 履歴
   $('history').innerHTML = state.history.map((t) => trackRow(t)).join('');
@@ -304,7 +307,61 @@ function renderAddList(container, tracks) {
       }
     });
   });
+  applyListHeight();
 }
+
+// ---------------------------------------------------------------------------
+// 曲さがし一覧の高さ調整(つまみをドラッグ。設定は端末に保存する)
+// ---------------------------------------------------------------------------
+
+const LIST_IDS = ['search-results', 'liked-list', 'pl-list'];
+const MIN_LIST_H = 140;
+let listHeight = Number(localStorage.getItem('jam.listHeight')) || 340;
+
+function applyListHeight() {
+  for (const id of LIST_IDS) {
+    const el = $(id);
+    // 中身が無いときに空の箱が残らないよう、高さは一覧がある時だけ適用する
+    if (el.children.length) {
+      el.style.height = listHeight + 'px';
+      el.style.maxHeight = 'none';
+    } else {
+      el.style.height = '';
+      el.style.maxHeight = '';
+    }
+  }
+}
+applyListHeight();
+
+(() => {
+  const handle = $('list-resize');
+  let drag = null;
+
+  const visibleList = () =>
+    LIST_IDS.map($).find((el) => el.offsetParent !== null) || $('search-results');
+
+  handle.addEventListener('pointerdown', (e) => {
+    const list = visibleList();
+    drag = { y: e.clientY, h: list.getBoundingClientRect().height };
+    handle.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+
+  handle.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const maxH = Math.round(window.innerHeight * 0.85);
+    listHeight = Math.max(MIN_LIST_H, Math.min(maxH, Math.round(drag.h + (e.clientY - drag.y))));
+    applyListHeight();
+  });
+
+  const end = () => {
+    if (!drag) return;
+    drag = null;
+    localStorage.setItem('jam.listHeight', String(listHeight));
+  };
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
+})();
 
 // ---------------------------------------------------------------------------
 // タブ切り替え
@@ -317,6 +374,7 @@ document.querySelectorAll('.tab').forEach((tab) => {
     for (const name of ['search', 'liked', 'playlists']) {
       $('tab-' + name).classList.toggle('hidden', name !== tab.dataset.tab);
     }
+    applyListHeight();
     if (tab.dataset.tab === 'liked' && guest.connected && !likedLoaded) loadLiked(0);
     if (tab.dataset.tab === 'playlists' && guest.connected && !playlistsLoaded) loadPlaylists();
   });

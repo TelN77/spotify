@@ -11,9 +11,9 @@ const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID || '';
 const CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET || '';
 // 未設定ならアクセス元URLから自動導出する(Dashboardに登録したURIと一致している必要あり)
 const FIXED_REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI || '';
-// 曲の残り時間がこの値を切ったら、次の1曲をSpotifyのキューへ投入する
-const LEAD_MS = Number(process.env.QUEUE_LEAD_MS || 20000);
 const POLL_MS = Number(process.env.POLL_INTERVAL_MS || 3000);
+/** 「次に再生」に見せるフォールバックプレイリストの曲数 */
+const FALLBACK_PREVIEW_COUNT = 6;
 
 const DATA_DIR = path.join(__dirname, 'data');
 const TOKEN_FILE = path.join(DATA_DIR, 'tokens.json');
@@ -223,6 +223,19 @@ function extractTracks(page) {
   return collectTrackObjects(page).map(trackInfo);
 }
 
+/**
+ * 自分が読み取れるプレイリストだけに絞る。
+ * 2026年2月の仕様変更で、開発モードのアプリは「自分が作成者または共同編集者」の
+ * プレイリストしか曲を取得できない。他人のものは一覧に出しても必ず失敗するため隠す。
+ */
+function ownPlaylistsOnly(items, userId) {
+  const list = (items || []).filter(Boolean);
+  if (!userId) return list;
+  return list.filter(
+    (p) => (p.owner && p.owner.id === userId) || p.collaborative === true
+  );
+}
+
 /** 一覧APIの応答からプレイリストの曲数を推測する(仕様変更でフィールド名が揺れるため) */
 function playlistTrackCount(p) {
   const candidates = [
@@ -316,7 +329,7 @@ function pickNext() {
   return null;
 }
 
-function computePreview(count = 10) {
+function computePreview(count = 20) {
   const list = pending.map((t) => ({ ...t }));
   const lastMap = { ...userLastPlayedAt };
   let lastBy = queuedTrack ? queuedTrack.addedBy : lastPlayedBy;
@@ -324,6 +337,7 @@ function computePreview(count = 10) {
   const out = [];
   let clock = Date.now();
   let plPointer = fallback ? fallback.pointer : 0;
+  let plShown = 0;
   while (out.length < count) {
     const req = pickFrom(list, lastBy, lastMap);
     if (req) {
@@ -331,9 +345,11 @@ function computePreview(count = 10) {
       list.splice(list.indexOf(req), 1);
       lastMap[req.addedBy] = ++clock;
       lastBy = req.addedBy;
-    } else if (fallback && fallback.tracks.length && out.length < 3) {
+    } else if (fallback && fallback.tracks.length && plShown < FALLBACK_PREVIEW_COUNT) {
+      // リクエストが尽きた後に流れるプレイリストの曲を、先の分までまとめて見せる
       const t = fallback.tracks[plPointer % fallback.tracks.length];
       plPointer++;
+      plShown++;
       out.push({ id: 'preview-pl-' + plPointer, ...t, addedBy: null, source: 'playlist' });
       lastBy = null;
     } else {
@@ -474,8 +490,10 @@ async function pollTickInner() {
     lastTrackUri = cur.uri;
     lastProgressMs = st.progress_ms;
 
-    const remaining = cur.duration_ms - st.progress_ms;
-    if (st.is_playing && !queuedTrack && remaining <= LEAD_MS) {
+    // 常に次の1曲をSpotifyのキューに載せておく。
+    // 曲の終わり際に投入する方式だと、それより前にスキップを押したとき
+    // 次の曲が用意されておらず交通整理から外れてしまうため。
+    if (st.is_playing && !queuedTrack) {
       const next = pickNext();
       if (next) await enqueueToSpotify(next);
     }
@@ -674,7 +692,7 @@ app.get('/callback', async (req, res) => {
     };
     if (st.role === 'guest') {
       const me = await apiWith(t, () => {}, '/me');
-      guests[st.clientId] = { ...t, name: me.display_name || 'guest' };
+      guests[st.clientId] = { ...t, name: me.display_name || 'guest', id: me.id };
       saveGuests();
       res.redirect('/#connected');
     } else {
@@ -735,6 +753,15 @@ function guestOf(req) {
   return { cid, g: guests[cid] || null };
 }
 
+/** 保存済みのゲスト情報にSpotifyのユーザーIDが無ければ補う(旧バージョンからの移行用) */
+async function ensureGuestId(g) {
+  if (g.id) return;
+  const me = await apiWith(g, saveGuests, '/me');
+  g.id = me.id;
+  if (!g.name) g.name = me.display_name;
+  saveGuests();
+}
+
 app.get('/api/me', (req, res) => {
   const { g } = guestOf(req);
   res.json({ connected: !!g, name: g ? g.name : null });
@@ -770,9 +797,10 @@ app.get('/api/my/playlists', async (req, res) => {
     const { g } = guestOf(req);
     if (!g) return res.status(409).json({ error: 'Spotify未連携です' });
     const offset = Number(req.query.offset || 0);
+    await ensureGuestId(g);
     const json = await apiWith(g, saveGuests, `/me/playlists?limit=50&offset=${offset}`);
     res.json({
-      playlists: (json.items || []).filter(Boolean).map((p) => ({
+      playlists: ownPlaylistsOnly(json.items, g.id).map((p) => ({
         id: p.id,
         name: p.name,
         image: p.images && p.images.length ? p.images[p.images.length - 1].url : null,
@@ -904,7 +932,7 @@ app.get('/api/host/playlists', async (req, res) => {
     const offset = Number(req.query.offset || 0);
     const json = await api(`/me/playlists?limit=50&offset=${offset}`);
     res.json({
-      playlists: (json.items || []).filter(Boolean).map((p) => ({
+      playlists: ownPlaylistsOnly(json.items, hostProfile && hostProfile.id).map((p) => ({
         id: p.id,
         name: p.name,
         image: p.images && p.images.length ? p.images[p.images.length - 1].url : null,

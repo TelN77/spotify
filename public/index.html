@@ -31,6 +31,9 @@
     <h2>次に再生（自動で交通整理された順）</h2>
     <ul id="preview" class="track-list"></ul>
     <div id="preview-empty" class="muted hidden">リクエストはまだありません。プレイリストの曲が流れます。</div>
+    <div class="muted" style="margin-top:8px;font-size:0.75rem">
+      自分が追加した曲は ↑↓ で順番を変更、✕ で取り消せます（「投入済み」の曲は変更できません）
+    </div>
   </section>
 
   <!-- 曲を探す -->
@@ -46,12 +49,12 @@
       <div class="search-row">
         <input type="search" id="search-input" placeholder="曲名・アーティスト名で検索" autocomplete="off">
       </div>
-      <ul id="search-results" class="track-list"></ul>
+      <ul id="search-results" class="track-list scroll-box resizable"></ul>
     </div>
 
     <div id="tab-liked" class="hidden">
       <div id="liked-connect" class="connect-area hidden"></div>
-      <ul id="liked-list" class="track-list scroll-box"></ul>
+      <ul id="liked-list" class="track-list scroll-box resizable"></ul>
       <button id="liked-more" class="btn btn-wide hidden">もっと見る</button>
     </div>
 
@@ -61,16 +64,10 @@
         <button id="pl-back" class="btn">← プレイリスト一覧へ</button>
         <span id="pl-title" class="muted"></span>
       </div>
-      <ul id="pl-list" class="track-list scroll-box"></ul>
+      <ul id="pl-list" class="track-list scroll-box resizable"></ul>
       <button id="pl-more" class="btn btn-wide hidden">もっと見る</button>
     </div>
-  </section>
-
-  <!-- 自分のリクエスト -->
-  <section class="card">
-    <h2>あなたのリクエスト（↑↓で自分の中の順番を変更）</h2>
-    <ul id="mine" class="track-list"></ul>
-    <div id="mine-empty" class="muted">まだありません</div>
+    <div class="drag-handle" id="list-resize">ドラッグで一覧の高さを変更</div>
   </section>
 
   <!-- 履歴 -->

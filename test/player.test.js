@@ -252,6 +252,37 @@ function assertNoDuplicateQueueing(player) {
     assert.strictEqual(player.queue.length, 1, 'キューの曲数が1ではない');
   });
 
+  await test('常に次の1曲がキューに載っている(曲の序盤でも)', async () => {
+    const player = createFakePlayer();
+    installFakeFetch(player);
+    player.play('spotify:track:start', 180000);
+    player.progressMs = 1000; // 再生が始まった直後
+
+    _state.addPending(req('A1', 'taro', 'c1'));
+    await pollTick();
+
+    assert.strictEqual(player.queue.length, 1, '曲の序盤で次の曲が用意されていない');
+    assert.strictEqual(player.queue[0].uri, 'spotify:track:A1');
+  });
+
+  await test('曲の序盤でスキップしても意図した次の曲が流れる', async () => {
+    const player = createFakePlayer();
+    installFakeFetch(player);
+    player.play('spotify:track:start', 180000);
+    player.progressMs = 1000;
+
+    _state.addPending(req('A1', 'taro', 'c1'));
+    await pollTick(); // ここでA1がキューに載る
+
+    // ユーザーがSpotifyアプリでスキップ(キュー先頭が再生される)
+    await global.fetch('https://api.spotify.com/v1/me/player/next', { method: 'POST' });
+    assert.strictEqual(player.current.uri, 'spotify:track:A1', 'スキップ先が意図した曲でない');
+
+    await pollTick();
+    assertNoDuplicateQueueing(player);
+    assert.strictEqual(_state.get().pending.length, 0, 'A1がリクエスト一覧から消えていない');
+  });
+
   await test('リピート再生は自動でオフになる', async () => {
     const player = createFakePlayer();
     installFakeFetch(player);
