@@ -18,6 +18,11 @@ function esc(s) {
   return d.innerHTML;
 }
 
+// 曲数はSpotifyの応答に含まれないことがあるので、その場合は件数を出さない
+function countLabel(count) {
+  return typeof count === 'number' && count > 0 ? count + '曲' : 'プレイリスト';
+}
+
 async function jsonFetch(url, opts) {
   const res = await fetch(url, opts);
   const json = await res.json().catch(() => ({}));
@@ -396,7 +401,7 @@ async function loadPlaylists() {
           <img src="${esc(p.image || '')}" alt="" onerror="this.style.visibility='hidden'">
           <div class="t-main">
             <div class="t-name">${esc(p.name)}</div>
-            <div class="t-artist">${p.count}曲</div>
+            <div class="t-artist">${countLabel(p.count)}</div>
           </div>
           <span class="muted">›</span>
         </li>`
@@ -471,7 +476,7 @@ $('host-pl-browse').addEventListener('click', async () => {
           <img src="${esc(p.image || '')}" alt="" onerror="this.style.visibility='hidden'">
           <div class="t-main">
             <div class="t-name">${esc(p.name)}</div>
-            <div class="t-artist">${p.count}曲${p.owner ? ' / ' + esc(p.owner) : ''}</div>
+            <div class="t-artist">${countLabel(p.count)}${p.owner ? ' / ' + esc(p.owner) : ''}</div>
           </div>
           <span class="muted">選ぶ</span>
         </li>`

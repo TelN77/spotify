@@ -192,14 +192,47 @@ function trackInfo(t) {
 /** 検索結果の最大件数。2026年2月の仕様変更で上限が10件に引き下げられた */
 const SEARCH_LIMIT = 10;
 
-/** ページング応答からトラック配列を取り出す(items[].track と items[] 直の両形式に対応) */
-function extractTracks(page) {
-  const out = [];
-  for (const item of (page && page.items) || []) {
-    const t = item && item.track ? item.track : item;
-    if (t && t.uri && String(t.uri).startsWith('spotify:track:')) out.push(trackInfo(t));
+/** 再帰探索で拾ってはいけない入れ子(同じ曲を重複して数えてしまう) */
+const TRACK_SCAN_SKIP_KEYS = new Set(['linked_from', 'linked_track', 'restrictions', 'album']);
+
+/**
+ * 応答の中からトラックらしきオブジェクトを再帰的に集める。
+ * Spotifyの仕様変更でページングの形(items[].track / items[] / data[] 等)が
+ * 変わっても曲を取りこぼさないよう、キー名に依存せず uri を手掛かりに探す。
+ */
+function collectTrackObjects(node, out = [], depth = 0) {
+  if (!node || depth > 6) return out;
+  if (Array.isArray(node)) {
+    for (const n of node) collectTrackObjects(n, out, depth + 1);
+    return out;
+  }
+  if (typeof node !== 'object') return out;
+  if (typeof node.uri === 'string' && node.uri.startsWith('spotify:track:')) {
+    out.push(node);
+    return out; // トラックの内部までは降りない
+  }
+  for (const key of Object.keys(node)) {
+    if (TRACK_SCAN_SKIP_KEYS.has(key)) continue;
+    collectTrackObjects(node[key], out, depth + 1);
   }
   return out;
+}
+
+/** ページング応答からトラック配列を取り出す */
+function extractTracks(page) {
+  return collectTrackObjects(page).map(trackInfo);
+}
+
+/** 一覧APIの応答からプレイリストの曲数を推測する(仕様変更でフィールド名が揺れるため) */
+function playlistTrackCount(p) {
+  const candidates = [
+    p && p.tracks && p.tracks.total,
+    p && p.track_count,
+    p && p.total_tracks,
+    p && p.tracks && Array.isArray(p.tracks.items) ? p.tracks.items.length : undefined,
+  ];
+  const n = candidates.find((v) => typeof v === 'number' && v > 0);
+  return typeof n === 'number' ? n : null;
 }
 
 /**
@@ -209,14 +242,31 @@ function extractTracks(page) {
  */
 async function fetchPlaylistPage(apiFn, id, offset, limit = 50) {
   const qs = `limit=${limit}&offset=${offset}`;
-  try {
-    return await apiFn(`/playlists/${id}/items?${qs}`);
-  } catch (e) {
-    if (e.status === 403 || e.status === 404) {
-      return await apiFn(`/playlists/${id}/tracks?${qs}`);
+  const attempts = [
+    `/playlists/${id}/items?${qs}`,
+    `/playlists/${id}/tracks?${qs}`,
+    `/playlists/${id}?${qs}`, // 一部の応答ではプレイリスト本体に曲が含まれる
+  ];
+  let lastErr = null;
+  for (const pathname of attempts) {
+    try {
+      const page = await apiFn(pathname);
+      const found = extractTracks(page).length;
+      if (found > 0 || (page && Array.isArray(page.items) && page.items.length === 0)) {
+        return page;
+      }
+      // 200なのに曲が取れない = 応答の形が想定外。形を記録して次の候補へ
+      console.warn(
+        `[playlist] ${pathname.split('?')[0]} は曲を取得できず。応答のキー: ` +
+          JSON.stringify(Object.keys(page || {})).slice(0, 200)
+      );
+      lastErr = new Error('応答から曲を取り出せませんでした');
+    } catch (e) {
+      lastErr = e;
+      if (e.status !== 403 && e.status !== 404) throw e;
     }
-    throw e;
   }
+  throw lastErr || new Error('プレイリストの曲を取得できませんでした');
 }
 
 // ---------------------------------------------------------------------------
@@ -726,7 +776,7 @@ app.get('/api/my/playlists', async (req, res) => {
         id: p.id,
         name: p.name,
         image: p.images && p.images.length ? p.images[p.images.length - 1].url : null,
-        count: p.tracks ? p.tracks.total : 0,
+        count: playlistTrackCount(p),
       })),
       nextOffset: json.next ? offset + ((json.items || []).length || 50) : null,
     });
@@ -816,6 +866,37 @@ app.post('/api/queue/:id/move', (req, res) => {
 
 // ---- ホスト操作 ----
 
+/**
+ * 診断用: プレイリスト関連APIの生の応答を確認する。
+ * Spotifyの仕様変更で応答の形が変わった際、原因を特定するために使う。
+ *   http://127.0.0.1:8888/api/debug/playlist?id=<プレイリストID>
+ */
+app.get('/api/debug/playlist', async (req, res) => {
+  if (!tokens) return res.status(409).json({ error: 'ホストがまだSpotifyにログインしていません' });
+  const id = parsePlaylistId(req.query.id) || String(req.query.id || '');
+  const results = {};
+  for (const pathname of [
+    `/playlists/${id}/items?limit=5&offset=0`,
+    `/playlists/${id}/tracks?limit=5&offset=0`,
+    `/playlists/${id}`,
+    '/me/playlists?limit=5',
+  ]) {
+    try {
+      const json = await api(pathname);
+      results[pathname] = {
+        ok: true,
+        topLevelKeys: Object.keys(json || {}),
+        tracksFound: extractTracks(json).length,
+        sample: JSON.parse(JSON.stringify(json)),
+      };
+    } catch (e) {
+      results[pathname] = { ok: false, error: String(e.message || e) };
+    }
+  }
+  // 応答が巨大になりすぎないよう文字数で切る
+  res.type('application/json').send(JSON.stringify(results, null, 2).slice(0, 20000));
+});
+
 // ホスト自身のプレイリスト一覧(フォールバック用プレイリストの選択肢)
 app.get('/api/host/playlists', async (req, res) => {
   try {
@@ -827,7 +908,7 @@ app.get('/api/host/playlists', async (req, res) => {
         id: p.id,
         name: p.name,
         image: p.images && p.images.length ? p.images[p.images.length - 1].url : null,
-        count: p.tracks ? p.tracks.total : 0,
+        count: playlistTrackCount(p),
         owner: p.owner ? p.owner.display_name : null,
       })),
       nextOffset: json.next ? offset + ((json.items || []).length || 50) : null,
@@ -904,6 +985,9 @@ module.exports = {
   pickFrom,
   computePreview,
   loadPlaylist,
+  extractTracks,
+  playlistTrackCount,
+  parsePlaylistId,
   _state: {
     setTokens: (t) => { tokens = t; },
     setFallback: (f) => { fallback = f; },
