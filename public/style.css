@@ -123,6 +123,21 @@ h1 { font-size: 1.15rem; }
 .connect-area .btn { display: inline-block; margin-top: 10px; text-decoration: none; }
 .btn-wide { width: 100%; margin-top: 10px; }
 
+/* 独立スクロールする一覧(プレイリスト選択など) */
+.scroll-box {
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 10px;
+}
+.scroll-box:not(:empty) {
+  margin-top: 8px;
+  background: #191919;
+  border: 1px solid #333;
+  padding: 0 8px;
+}
+
 .btn-move {
   background: var(--card2); color: var(--text); width: 32px; height: 32px;
   border-radius: 50%; font-size: 0.95rem; padding: 0; flex-shrink: 0; border: none; cursor: pointer;

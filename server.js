@@ -157,6 +157,13 @@ async function apiWith(t, save, pathname, opts = {}, retried = false) {
   if (res.status === 204) return null;
   const text = await res.text();
   if (!res.ok) {
+    // 2026年2月の仕様変更でlimitの上限が引き下げられた。上限に触れたら自動で下げて再試行する
+    const limitMatch = pathname.match(/([?&]limit=)(\d+)/);
+    if (res.status === 400 && /Invalid limit/i.test(text) && limitMatch && Number(limitMatch[2]) > 10) {
+      const lowered = pathname.replace(/([?&]limit=)\d+/, '$110');
+      console.warn(`[spotify] limitが上限超過のため10に下げて再試行: ${pathname.split('?')[0]}`);
+      return apiWith(t, save, lowered, opts, retried);
+    }
     const endpoint = pathname.split('?')[0];
     const err = new Error(`Spotify API ${res.status} (${endpoint}): ${text.slice(0, 300)}`);
     err.status = res.status;
@@ -182,7 +189,35 @@ function trackInfo(t) {
   };
 }
 
-const TRACK_FIELDS = 'track(uri,id,name,duration_ms,artists(name),album(images))';
+/** 検索結果の最大件数。2026年2月の仕様変更で上限が10件に引き下げられた */
+const SEARCH_LIMIT = 10;
+
+/** ページング応答からトラック配列を取り出す(items[].track と items[] 直の両形式に対応) */
+function extractTracks(page) {
+  const out = [];
+  for (const item of (page && page.items) || []) {
+    const t = item && item.track ? item.track : item;
+    if (t && t.uri && String(t.uri).startsWith('spotify:track:')) out.push(trackInfo(t));
+  }
+  return out;
+}
+
+/**
+ * プレイリストの曲一覧を取得する。
+ * 2026年2月の仕様変更で /playlists/{id}/tracks は開発モードのアプリから使えなくなり
+ * 403を返すため、まず後継の /playlists/{id}/items を使い、駄目なら旧APIへフォールバックする。
+ */
+async function fetchPlaylistPage(apiFn, id, offset, limit = 50) {
+  const qs = `limit=${limit}&offset=${offset}`;
+  try {
+    return await apiFn(`/playlists/${id}/items?${qs}`);
+  } catch (e) {
+    if (e.status === 403 || e.status === 404) {
+      return await apiFn(`/playlists/${id}/tracks?${qs}`);
+    }
+    throw e;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // 交通整理ロジック
@@ -263,12 +298,56 @@ function computePreview(count = 10) {
 // ---------------------------------------------------------------------------
 
 let lastTrackUri = null;
+let lastProgressMs = null;
 /** 強制スキップ補正の連発防止 */
 let correctionCooldownUntil = 0;
+/**
+ * pollTickの多重実行ガード。
+ * API応答がポーリング間隔より遅いと同じ判定が二重に走り、同じ曲をキューへ
+ * 二重投入してしまう(=同じ曲が続けて流れる)ため、必ず1本だけ走らせる。
+ */
+let pollBusy = false;
+let pollAgain = false;
+
+/** Spotify側の実際のキュー内容を取得(取れなければ null) */
+async function getSpotifyQueue() {
+  try {
+    const q = await api('/me/player/queue');
+    return (q && q.queue ? q.queue : []).filter((t) => t && t.uri);
+  } catch (e) {
+    console.error('[spotify] キュー取得に失敗:', e.message);
+    return null;
+  }
+}
 
 async function enqueueToSpotify(next) {
+  // すでに同じ曲がSpotifyのキューに入っていれば投入しない(二重投入=同じ曲の連続再生を防ぐ)
+  const q = await getSpotifyQueue();
+  if (q && q.some((t) => t.uri === next.uri)) {
+    console.log('[queue] 既にキューに存在するため投入をスキップ:', next.name);
+    queuedTrack = next;
+    return;
+  }
   await api('/me/player/queue?uri=' + encodeURIComponent(next.uri), { method: 'POST' });
   queuedTrack = next;
+}
+
+/**
+ * 意図した曲を確実に再生する。
+ * Spotifyのキュー先頭に居るなら「次へ」で消費し(キューに残骸を残さない)、
+ * 居ない場合はURI指定で直接再生する。
+ */
+async function forcePlay(track) {
+  const q = await getSpotifyQueue();
+  if (q && q.length && q[0].uri === track.uri) {
+    await api('/me/player/next', { method: 'POST' });
+  } else {
+    await api('/me/player/play', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uris: [track.uri] }),
+    });
+  }
 }
 
 function markQueuedAsPlayed() {
@@ -285,7 +364,7 @@ function markQueuedAsPlayed() {
   queuedTrack = null;
 }
 
-async function pollTick() {
+async function pollTickInner() {
   if (!tokens) return;
   try {
     const st = await api('/me/player?additional_types=track');
@@ -296,38 +375,54 @@ async function pollTick() {
       return;
     }
     const cur = st.item;
-    const trackChanged = lastTrackUri !== null && lastTrackUri !== cur.uri;
 
-    if (queuedTrack && cur.uri === queuedTrack.uri && trackChanged) {
-      // 投入済みの曲が再生され始めた(自然な曲送り、またはスキップでキュー先頭が流れた)
+    // リピート再生が有効だとキューより優先され、同じ曲が延々と流れて交通整理が破綻する
+    if (st.repeat_state && st.repeat_state !== 'off') {
+      try {
+        await api('/me/player/repeat?state=off', { method: 'PUT' });
+        console.log('[player] リピート再生をオフにしました');
+      } catch { /* 端末によっては失敗しても致命的ではない */ }
+    }
+
+    const trackChanged = lastTrackUri !== null && lastTrackUri !== cur.uri;
+    // 同じ曲が頭から再生し直されたことの検知:
+    // 前回は終盤(残り30秒以内)だったのに今回は冒頭15秒以内に戻っている
+    const replayed =
+      !trackChanged &&
+      lastProgressMs !== null &&
+      cur.duration_ms - lastProgressMs < 30000 &&
+      st.progress_ms < 15000;
+    const boundary = trackChanged || replayed;
+
+    // 投入した曲が始まったか。曲が変わった瞬間を取り逃しても、
+    // 「投入した曲が冒頭を再生中」なら開始済みとみなす(同じ曲を続けて選んだ場合の取りこぼし対策)
+    const queuedStarted =
+      queuedTrack && cur.uri === queuedTrack.uri && (boundary || st.progress_ms < 10000);
+
+    if (queuedStarted) {
       markQueuedAsPlayed();
-    } else if (trackChanged && Date.now() > correctionCooldownUntil) {
-      // 想定外の曲に変わった = 手動スキップや手動再生でこちらの管理から外れた
-      if (queuedTrack) {
-        // こちらが投入した曲はSpotifyのキュー先頭で待っているので、そこへ強制スキップ
-        correctionCooldownUntil = Date.now() + 8000;
-        lastTrackUri = cur.uri;
-        await api('/me/player/next', { method: 'POST' });
-        setTimeout(pollTick, 1000);
-        broadcast();
-        return;
-      }
-      if (pending.length) {
-        // リクエスト待ちがあるのに別の曲が流れ始めた → 正しい次の曲を投入してスキップ
-        const next = pickNext();
-        if (next) {
-          correctionCooldownUntil = Date.now() + 8000;
-          lastTrackUri = cur.uri;
-          await enqueueToSpotify(next);
-          await api('/me/player/next', { method: 'POST' });
-          setTimeout(pollTick, 1000);
+    } else if (boundary) {
+      if (Date.now() > correctionCooldownUntil) {
+        // 想定外の曲、または同じ曲の再再生。流すべき曲が分かっている場合だけ補正する
+        let target = queuedTrack;
+        if (!target && (pending.length || replayed)) target = pickNext();
+        if (target) {
+          console.log('[player] 想定外の再生を検知 → 補正:', target.name);
+          correctionCooldownUntil = Date.now() + 10000;
+          queuedTrack = target;
+          await forcePlay(target);
+          markQueuedAsPlayed();
+          lastTrackUri = target.uri;
+          lastProgressMs = 0;
+          schedulePoll(1500);
           broadcast();
           return;
         }
+        // 流すべき曲が無い場合はホストの手動選曲を尊重し、この曲の終わりから自動運転に戻る
       }
-      // リクエストが無い場合は補正しない(ホストの手動選曲を尊重し、曲の終わりから再び自動運転)
     }
     lastTrackUri = cur.uri;
+    lastProgressMs = st.progress_ms;
 
     const remaining = cur.duration_ms - st.progress_ms;
     if (st.is_playing && !queuedTrack && remaining <= LEAD_MS) {
@@ -350,6 +445,31 @@ async function pollTick() {
     pollErr = String(e.message || e);
     broadcast();
   }
+}
+
+/**
+ * pollTickInner を必ず1本だけ実行する。実行中に来た要求は1回にまとめて後追いする。
+ * (多重実行すると同じ曲を二重にキュー投入してしまう)
+ */
+async function pollTick() {
+  if (pollBusy) {
+    pollAgain = true;
+    return;
+  }
+  pollBusy = true;
+  try {
+    await pollTickInner();
+    while (pollAgain) {
+      pollAgain = false;
+      await pollTickInner();
+    }
+  } finally {
+    pollBusy = false;
+  }
+}
+
+function schedulePoll(delayMs) {
+  setTimeout(() => { pollTick(); }, delayMs);
 }
 
 // ---------------------------------------------------------------------------
@@ -380,16 +500,15 @@ async function loadPlaylist(id, knownMeta = null) {
     }
   }
   const tracks = [];
-  let url = `/playlists/${id}/tracks?limit=100&fields=next,items(${TRACK_FIELDS})`;
-  while (url && tracks.length < 500) {
-    const page = await api(url);
-    for (const item of page.items || []) {
-      if (item.track && item.track.uri && item.track.uri.startsWith('spotify:track:')) {
-        tracks.push(trackInfo(item.track));
-      }
-    }
-    url = page.next ? page.next.replace('https://api.spotify.com/v1', '') : null;
+  let offset = 0;
+  while (tracks.length < 500) {
+    const page = await fetchPlaylistPage(api, id, offset);
+    const got = extractTracks(page);
+    tracks.push(...got);
+    if (!page || !page.next || got.length === 0) break;
+    offset += 50;
   }
+  if (!tracks.length) throw new Error('このプレイリストから曲を取得できませんでした');
   fallback = {
     id,
     name: meta.name,
@@ -550,8 +669,10 @@ app.get('/api/search', async (req, res) => {
     if (!tokens) return res.status(409).json({ error: 'ホストがまだSpotifyにログインしていません' });
     const q = String(req.query.q || '').trim();
     if (!q) return res.json({ tracks: [] });
-    const json = await api('/search?type=track&limit=12&q=' + encodeURIComponent(q));
-    res.json({ tracks: (json.tracks.items || []).map(trackInfo) });
+    const json = await api(
+      `/search?type=track&limit=${SEARCH_LIMIT}&q=` + encodeURIComponent(q)
+    );
+    res.json({ tracks: ((json.tracks && json.tracks.items) || []).map(trackInfo) });
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
   }
@@ -582,10 +703,12 @@ app.get('/api/my/liked', async (req, res) => {
     if (!g) return res.status(409).json({ error: 'Spotify未連携です' });
     const offset = Number(req.query.offset || 0);
     const json = await apiWith(g, saveGuests, `/me/tracks?limit=50&offset=${offset}`);
+    const items = json.items || [];
     res.json({
-      tracks: (json.items || []).filter((i) => i.track).map((i) => trackInfo(i.track)),
+      tracks: extractTracks(json),
       total: json.total,
-      nextOffset: json.next ? offset + 50 : null,
+      // limitが自動で下げられてもページ送りがずれないよう、実際の取得件数で進める
+      nextOffset: json.next ? offset + items.length : null,
     });
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
@@ -605,7 +728,7 @@ app.get('/api/my/playlists', async (req, res) => {
         image: p.images && p.images.length ? p.images[p.images.length - 1].url : null,
         count: p.tracks ? p.tracks.total : 0,
       })),
-      nextOffset: json.next ? offset + 50 : null,
+      nextOffset: json.next ? offset + ((json.items || []).length || 50) : null,
     });
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
@@ -618,16 +741,11 @@ app.get('/api/my/playlist-tracks', async (req, res) => {
     if (!g) return res.status(409).json({ error: 'Spotify未連携です' });
     const id = String(req.query.id || '');
     const offset = Number(req.query.offset || 0);
-    const json = await apiWith(
-      g,
-      saveGuests,
-      `/playlists/${id}/tracks?limit=100&offset=${offset}&fields=next,items(${TRACK_FIELDS})`
-    );
+    const guestApi = (p, o) => apiWith(g, saveGuests, p, o);
+    const json = await fetchPlaylistPage(guestApi, id, offset);
     res.json({
-      tracks: (json.items || [])
-        .filter((i) => i.track && i.track.uri && i.track.uri.startsWith('spotify:track:'))
-        .map((i) => trackInfo(i.track)),
-      nextOffset: json.next ? offset + 100 : null,
+      tracks: extractTracks(json),
+      nextOffset: json && json.next ? offset + ((json.items || []).length || 50) : null,
     });
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
@@ -712,7 +830,7 @@ app.get('/api/host/playlists', async (req, res) => {
         count: p.tracks ? p.tracks.total : 0,
         owner: p.owner ? p.owner.display_name : null,
       })),
-      nextOffset: json.next ? offset + 50 : null,
+      nextOffset: json.next ? offset + ((json.items || []).length || 50) : null,
     });
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
@@ -771,9 +889,36 @@ if (tokens) {
     });
 }
 
-setInterval(pollTick, POLL_MS);
+// テストから require された場合はサーバーを起動せず、内部関数だけを公開する
+if (require.main === module) {
+  setInterval(pollTick, POLL_MS);
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Jam Queue Manager: http://127.0.0.1:${PORT}`);
-  console.log(`スマホからは http://<このPCのLAN IP>:${PORT} でアクセスしてください`);
-});
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Jam Queue Manager: http://127.0.0.1:${PORT}`);
+    console.log(`スマホからは http://<このPCのLAN IP>:${PORT} でアクセスしてください`);
+  });
+}
+
+module.exports = {
+  pollTick,
+  pickFrom,
+  computePreview,
+  loadPlaylist,
+  _state: {
+    setTokens: (t) => { tokens = t; },
+    setFallback: (f) => { fallback = f; },
+    addPending: (t) => { pending.push(t); },
+    get: () => ({ pending, queuedTrack, lastPlayedBy, history, fallback }),
+    reset: () => {
+      pending = [];
+      queuedTrack = null;
+      lastPlayedBy = null;
+      history = [];
+      fallback = null;
+      lastTrackUri = null;
+      lastProgressMs = null;
+      correctionCooldownUntil = 0;
+      for (const k of Object.keys(userLastPlayedAt)) delete userLastPlayedAt[k];
+    },
+  },
+};

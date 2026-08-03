@@ -451,6 +451,13 @@ $('host-toggle').addEventListener('click', () => {
 
 $('host-pl-browse').addEventListener('click', async () => {
   const list = $('host-pl-list');
+  // 開いている状態でもう一度押したら閉じる
+  if (list.innerHTML !== '') {
+    list.innerHTML = '';
+    $('host-pl-browse').textContent = '📀 自分のプレイリスト一覧から選ぶ';
+    return;
+  }
+  $('host-pl-browse').textContent = '📀 一覧を閉じる';
   list.innerHTML = '<li class="muted">読み込み中…</li>';
   try {
     const json = await jsonFetch('/api/host/playlists');
@@ -481,6 +488,7 @@ $('host-pl-browse').addEventListener('click', async () => {
             body: JSON.stringify({ playlist: p.id, name: p.name, image: p.image }),
           });
           list.innerHTML = '';
+          $('host-pl-browse').textContent = '📀 自分のプレイリスト一覧から選ぶ';
         } catch (e) {
           $('playlist-info').textContent = 'エラー: ' + e.message;
         }

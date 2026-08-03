@@ -51,7 +51,7 @@
 
     <div id="tab-liked" class="hidden">
       <div id="liked-connect" class="connect-area hidden"></div>
-      <ul id="liked-list" class="track-list"></ul>
+      <ul id="liked-list" class="track-list scroll-box"></ul>
       <button id="liked-more" class="btn btn-wide hidden">もっと見る</button>
     </div>
 
@@ -61,7 +61,7 @@
         <button id="pl-back" class="btn">← プレイリスト一覧へ</button>
         <span id="pl-title" class="muted"></span>
       </div>
-      <ul id="pl-list" class="track-list"></ul>
+      <ul id="pl-list" class="track-list scroll-box"></ul>
       <button id="pl-more" class="btn btn-wide hidden">もっと見る</button>
     </div>
   </section>
@@ -88,7 +88,7 @@
       <div class="field">
         <label>誰もリクエストしていない時に流すプレイリスト</label>
         <button id="host-pl-browse" class="btn btn-wide">📀 自分のプレイリスト一覧から選ぶ</button>
-        <ul id="host-pl-list" class="track-list"></ul>
+        <ul id="host-pl-list" class="track-list scroll-box"></ul>
         <div class="search-row" style="margin-top:8px">
           <input type="text" id="playlist-input" placeholder="またはURLを貼り付け">
           <button id="playlist-save" class="btn">設定</button>
@@ -98,6 +98,10 @@
       <div class="field">
         <button id="skip-btn" class="btn btn-danger">⏭ この曲をスキップ</button>
         <div class="muted" style="margin-top:6px;font-size:0.75rem">※ スキップはSpotifyアプリのボタンでもOK（自動で正しい曲に繋がります）</div>
+        <div class="muted" style="margin-top:10px;font-size:0.75rem">
+          Spotifyの「次に再生」に見覚えのない曲が溜まってしまった場合は、
+          Spotifyアプリの「[次に再生]をクリア」で一度空にしてください（APIからは消せません）。
+        </div>
       </div>
     </div>
   </section>

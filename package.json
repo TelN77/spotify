@@ -4,7 +4,8 @@
   "description": "Spotify Jamの代わりに、友人からの曲リクエストを公平に交通整理してホストのキューへ自動投入するWebアプリ",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node test/player.test.js"
   },
   "engines": {
     "node": ">=18"

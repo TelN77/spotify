@@ -95,6 +95,32 @@ npm start
 2. リクエストが無い場合: 設定したプレイリストを頭から順にループ再生
 3. プレイリストの曲が流れた後は「直前の人」の縛りがリセットされる
 
+## トラブルシューティング
+
+### Spotifyの「次に再生」に同じ曲が大量に溜まった
+
+古いバージョンに、再生監視処理が多重に走って同じ曲を何度もキューへ投入する不具合がありました(結果として同じ曲が延々と流れます)。修正済みですが、すでに溜まってしまったキューはWeb APIからは消せないため、**Spotifyアプリの「[次に再生]をクリア」**で一度空にしてください。
+
+### 403 Forbidden / 400 Invalid limit が出る
+
+2026年2月のSpotify Web APIの仕様変更(開発モードのアプリに対する制限強化)に対応済みです。`git pull` で最新にしてください。主な変更点:
+
+- `GET /playlists/{id}/tracks` が廃止され `GET /playlists/{id}/items` に置き換わった(旧APIは403)
+- 検索の `limit` の上限が50→10に引き下げられた(超えると400 `Invalid limit`)
+- 開発モードのアプリはオーナーがPremiumであることが必須、登録ユーザー数の上限は25人→5人
+
+参考: [February 2026 Web API Dev Mode Changes](https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide) / [Update on Developer Access and Platform Security](https://developer.spotify.com/blog/2026-02-06-update-on-developer-access-and-platform-security)
+
+### 動作確認
+
+実機のSpotifyなしで、再生の交通整理ロジックを検証できます:
+
+```bash
+npm test
+```
+
+偽のSpotifyプレイヤーを使って「重複投入しないか」「同じ人の曲が連続しないか」「同じ曲を指定しても無限ループしないか」などを自動チェックします。
+
 ## 制限・注意点
 
 - **Spotify公式のJam機能そのものをAPIで操作することはできません**(Jamのキューの並び替え・削除のAPIは非公開)。このアプリは「ホストの再生キューに1曲ずつ投入する」ことで同等の体験を実現しています
