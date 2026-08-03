@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <meta name="theme-color" content="#121212">
+  <title>Jam Queue Manager</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>🎵 Jam Queue Manager</h1>
+    <span id="me" class="me"></span>
+  </header>
+
+  <div id="banner" class="banner hidden"></div>
+
+  <!-- 再生中 -->
+  <section class="card" id="now-playing-card">
+    <h2>再生中</h2>
+    <div id="now-playing" class="now-playing">
+      <div class="muted">再生情報を取得中…</div>
+    </div>
+    <div class="progress-wrap hidden" id="progress-wrap">
+      <div class="progress-bar" id="progress-bar"></div>
+    </div>
+  </section>
+
+  <!-- これから流れる順番 -->
+  <section class="card">
+    <h2>次に再生（自動で交通整理された順）</h2>
+    <ul id="preview" class="track-list"></ul>
+    <div id="preview-empty" class="muted hidden">リクエストはまだありません。プレイリストの曲が流れます。</div>
+  </section>
+
+  <!-- 検索・追加 -->
+  <section class="card">
+    <h2>曲をリクエスト</h2>
+    <div class="search-row">
+      <input type="search" id="search-input" placeholder="曲名・アーティスト名で検索" autocomplete="off">
+    </div>
+    <ul id="search-results" class="track-list"></ul>
+  </section>
+
+  <!-- 履歴 -->
+  <section class="card">
+    <h2>再生履歴</h2>
+    <ul id="history" class="track-list"></ul>
+    <div id="history-empty" class="muted">まだ履歴はありません</div>
+  </section>
+
+  <!-- ホスト設定 -->
+  <section class="card" id="host-card">
+    <h2 class="collapsible" id="host-toggle">⚙️ ホスト設定 <span class="chev">▾</span></h2>
+    <div id="host-body" class="hidden">
+      <div id="auth-area"></div>
+      <div class="field">
+        <label>誰もリクエストしていない時に流すプレイリスト（URL貼り付け）</label>
+        <div class="search-row">
+          <input type="text" id="playlist-input" placeholder="https://open.spotify.com/playlist/...">
+          <button id="playlist-save" class="btn">設定</button>
+        </div>
+        <div id="playlist-info" class="muted"></div>
+      </div>
+      <div class="field">
+        <button id="skip-btn" class="btn btn-danger">⏭ この曲をスキップ</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 名前入力モーダル -->
+  <div id="name-modal" class="modal hidden">
+    <div class="modal-box">
+      <h2>あなたの名前</h2>
+      <p class="muted">リクエストした曲に表示される名前です</p>
+      <input type="text" id="name-input" maxlength="20" placeholder="例: たろう">
+      <button id="name-save" class="btn btn-primary">はじめる</button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
