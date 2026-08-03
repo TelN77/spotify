@@ -33,13 +33,44 @@
     <div id="preview-empty" class="muted hidden">リクエストはまだありません。プレイリストの曲が流れます。</div>
   </section>
 
-  <!-- 検索・追加 -->
+  <!-- 曲を探す -->
   <section class="card">
     <h2>曲をリクエスト</h2>
-    <div class="search-row">
-      <input type="search" id="search-input" placeholder="曲名・アーティスト名で検索" autocomplete="off">
+    <div class="tabs">
+      <button class="tab active" data-tab="search">検索</button>
+      <button class="tab" data-tab="liked">お気に入り</button>
+      <button class="tab" data-tab="playlists">マイプレイリスト</button>
     </div>
-    <ul id="search-results" class="track-list"></ul>
+
+    <div id="tab-search">
+      <div class="search-row">
+        <input type="search" id="search-input" placeholder="曲名・アーティスト名で検索" autocomplete="off">
+      </div>
+      <ul id="search-results" class="track-list"></ul>
+    </div>
+
+    <div id="tab-liked" class="hidden">
+      <div id="liked-connect" class="connect-area hidden"></div>
+      <ul id="liked-list" class="track-list"></ul>
+      <button id="liked-more" class="btn btn-wide hidden">もっと見る</button>
+    </div>
+
+    <div id="tab-playlists" class="hidden">
+      <div id="pl-connect" class="connect-area hidden"></div>
+      <div id="pl-back-row" class="hidden" style="margin-bottom:8px">
+        <button id="pl-back" class="btn">← プレイリスト一覧へ</button>
+        <span id="pl-title" class="muted"></span>
+      </div>
+      <ul id="pl-list" class="track-list"></ul>
+      <button id="pl-more" class="btn btn-wide hidden">もっと見る</button>
+    </div>
+  </section>
+
+  <!-- 自分のリクエスト -->
+  <section class="card">
+    <h2>あなたのリクエスト（↑↓で自分の中の順番を変更）</h2>
+    <ul id="mine" class="track-list"></ul>
+    <div id="mine-empty" class="muted">まだありません</div>
   </section>
 
   <!-- 履歴 -->
@@ -64,6 +95,7 @@
       </div>
       <div class="field">
         <button id="skip-btn" class="btn btn-danger">⏭ この曲をスキップ</button>
+        <div class="muted" style="margin-top:6px;font-size:0.75rem">※ スキップはSpotifyアプリのボタンでもOK（自動で正しい曲に繋がります）</div>
       </div>
     </div>
   </section>

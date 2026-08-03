@@ -108,6 +108,27 @@ h1 { font-size: 1.15rem; }
   border-radius: 50%; font-size: 1rem; padding: 0; flex-shrink: 0; border: none; cursor: pointer;
 }
 
+/* タブ */
+.tabs {
+  display: flex; gap: 6px; margin-bottom: 12px;
+}
+.tab {
+  flex: 1; border: none; border-radius: 999px; padding: 8px 4px;
+  font-size: 0.82rem; font-weight: 700; cursor: pointer;
+  background: var(--card2); color: var(--muted);
+}
+.tab.active { background: var(--green); color: #000; }
+
+.connect-area { padding: 8px 0; }
+.connect-area .btn { display: inline-block; margin-top: 10px; text-decoration: none; }
+.btn-wide { width: 100%; margin-top: 10px; }
+
+.btn-move {
+  background: var(--card2); color: var(--text); width: 32px; height: 32px;
+  border-radius: 50%; font-size: 0.95rem; padding: 0; flex-shrink: 0; border: none; cursor: pointer;
+}
+.btn-move:active { background: var(--green); color: #000; }
+
 /* 入力 */
 .search-row { display: flex; gap: 8px; }
 input[type="search"], input[type="text"] {
