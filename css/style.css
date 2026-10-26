@@ -193,7 +193,7 @@ a { color: var(--accent); }
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
 .album-card {
@@ -204,7 +204,14 @@ a { color: var(--accent); }
   border-radius: var(--radius);
   padding: 8px 10px;
   min-height: 64px;
+  min-width: 0; /* グリッド項目の自動最小幅を無効化し、中の文字を省略させる */
 }
+@media (max-width: 400px) {
+  .album-card { gap: 8px; padding: 8px; }
+  .album-card .cover { width: 44px; height: 44px; }
+  .btn-remove { padding: 8px 10px; }
+}
+
 .album-card .cover {
   width: 52px;
   height: 52px;
@@ -216,9 +223,12 @@ a { color: var(--accent); }
 .album-card .meta { flex: 1; min-width: 0; }
 .album-name {
   font-weight: 600;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2; /* 狭い画面では2行使い、それ以上は省略 */
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .artist-name, .track-count {
   color: var(--fg-dim);
@@ -425,7 +435,7 @@ a { color: var(--accent); }
   .toast { bottom: 24px; }
 
   /* 広い画面ではグリッド表示で件数を増やす */
-  .album-list { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+  .album-list { grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); }
 }
 
 @media (min-width: 1200px) {
