@@ -53,6 +53,27 @@ function toast(msg, isError = false) {
   toastTimer = setTimeout(() => el.classList.add('hidden'), 4000);
 }
 
+// ---------- 確認ダイアログ ----------
+// 削除は取り消せない上にプレイリスト全体の書き換えを伴うため、必ず明示確認を挟む。
+// 既定のフォーカスは「キャンセル」側に置き、Esc・背景タップでも中止できるようにする。
+let confirmResolve = null;
+
+function askConfirm(message) {
+  if (confirmResolve) return Promise.resolve(false); // 多重表示を防ぐ
+  $('confirm-msg').textContent = message;
+  $('confirm').classList.remove('hidden');
+  $('confirm-cancel').focus();
+  return new Promise((resolve) => { confirmResolve = resolve; });
+}
+
+function closeConfirm(result) {
+  if (!confirmResolve) return;
+  $('confirm').classList.add('hidden');
+  const resolve = confirmResolve;
+  confirmResolve = null;
+  resolve(result);
+}
+
 function handleError(e) {
   hideProgress();
   console.error(e);
@@ -84,7 +105,8 @@ function renderManaged() {
         <div class="artist-name">${esc(b.artists.join(', '))}</div>
         <div class="track-count">${b.uris.length}曲</div>
       </div>
-      <button class="btn btn-remove" data-remove="${esc(b.id)}" title="管理対象から削除">✕</button>
+      <button class="btn btn-remove" data-remove="${esc(b.id)}"
+              aria-label="「${esc(b.name)}」をシャッフル対象から削除">🗑 削除</button>
     </li>`).join('');
 }
 
@@ -140,15 +162,19 @@ function renderLibrary() {
       <ul class="album-list">
         ${items.map((a) => {
           const added = managedIds.has(a.id);
+          // 追加済みはカード全体のタップ対象から外し、削除ボタンだけを操作対象にする
           return `
-          <li class="album-card ${added ? 'added' : ''}" data-add="${esc(a.id)}" tabindex="0">
+          <li class="album-card ${added ? 'added' : ''}" ${added ? '' : `data-add="${esc(a.id)}" tabindex="0"`}>
             <img class="cover" src="${esc(a.image)}" alt="" loading="lazy">
             <div class="meta">
               <div class="album-name" title="${esc(a.name)}">${esc(a.name)}</div>
               <div class="artist-name">${esc(a.artists.join(', '))}</div>
-              <div class="track-count">${TYPE_LABEL[a.albumType] || esc(a.albumType)} ・ ${a.totalTracks}曲${a.source === 'liked' ? ' ・ ♡曲より' : ''}</div>
+              <div class="track-count">${TYPE_LABEL[a.albumType] || esc(a.albumType)} ・ ${a.totalTracks}曲${a.source === 'liked' ? ' ・ ♡曲より' : ''}${added ? ' ・ <span class="added-mark">✓ 追加済み</span>' : ''}</div>
             </div>
-            <span class="add-state">${added ? '✓ 追加済み' : '＋ 追加'}</span>
+            ${added
+              ? `<button class="btn btn-remove" data-remove="${esc(a.id)}"
+                         aria-label="「${esc(a.name)}」をシャッフル対象から削除">🗑 削除</button>`
+              : '<span class="add-state">＋ 追加</span>'}
           </li>`;
         }).join('')}
       </ul>`}
@@ -190,7 +216,9 @@ async function addAlbum(albumId) {
 
 async function removeAlbum(albumId) {
   const block = state.managed.find((b) => b.id === albumId);
-  if (!block) return;
+  if (!block || state.busy) return;
+  const ok = await askConfirm(`「${block.name}」(${block.uris.length}曲)をシャッフル対象から削除します。`);
+  if (!ok) return;
   await guard(async () => {
     progress(`「${block.name}」を削除中…`);
     const remaining = state.managed.filter((b) => b.id !== albumId);
@@ -300,6 +328,13 @@ function bindEvents() {
   });
   $('btn-logout').addEventListener('click', () => { auth.logout(); showScreen('login'); });
 
+  $('confirm-cancel').addEventListener('click', () => closeConfirm(false));
+  $('confirm-ok').addEventListener('click', () => closeConfirm(true));
+  // 背景タップでも中止(ダイアログ本体のタップは拾わない)
+  $('confirm').addEventListener('click', (e) => {
+    if (e.target === $('confirm')) closeConfirm(false);
+  });
+
   $('tab-manage').addEventListener('click', () => showTab('manage'));
   $('tab-library').addEventListener('click', () => showTab('library'));
 
@@ -312,6 +347,9 @@ function bindEvents() {
   });
 
   $('library-list').addEventListener('click', (e) => {
+    // 削除ボタンはカード内にあるため、追加判定より先に処理する
+    const remove = e.target.closest('[data-remove]');
+    if (remove) { removeAlbum(remove.dataset.remove); return; }
     // アーティスト行タップで開閉
     const toggle = e.target.closest('[data-artist]');
     if (toggle) {
@@ -347,6 +385,7 @@ function bindEvents() {
   });
   // "/" でどこからでも検索ボックスへ(PCキーボード操作)
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && confirmResolve) { closeConfirm(false); return; }
     if (e.key === '/' && document.activeElement !== search &&
         !/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)) {
       e.preventDefault();

@@ -111,6 +111,19 @@
   </div>
 </div>
 
+<!-- 削除確認ダイアログ(誤タップ防止) -->
+<div id="confirm" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+  <div class="confirm-box">
+    <h3 id="confirm-title">シャッフル対象から削除</h3>
+    <p id="confirm-msg"></p>
+    <p class="confirm-note">Spotifyのライブラリからは削除されません。</p>
+    <div class="confirm-actions">
+      <button id="confirm-cancel" class="btn">キャンセル</button>
+      <button id="confirm-ok" class="btn btn-danger">削除する</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast hidden"></div>
 
 <script type="module" src="js/main.js"></script>

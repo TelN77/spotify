@@ -230,24 +230,29 @@ a { color: var(--accent); }
 .btn-remove {
   background: transparent;
   color: var(--fg-dim);
-  font-size: 1rem;
+  border: 1px solid #3a3a3a;
+  font-size: .85rem;
   padding: 8px 12px;
   flex-shrink: 0;
+  white-space: nowrap;
 }
-.btn-remove:hover { color: var(--danger); }
+.btn-remove:hover { color: var(--danger); border-color: var(--danger); filter: none; }
+.btn-remove:focus-visible { outline: 2px solid var(--danger); outline-offset: 2px; }
+.btn-danger { background: var(--danger); color: #fff; font-weight: 700; }
 
 /* 追加パネル側のカードは全体がクリック対象 */
 [data-add] { cursor: pointer; }
 [data-add]:hover { background: var(--bg3); }
 [data-add]:focus-visible { outline: 2px solid var(--accent); }
-.album-card.added { opacity: .55; }
+.album-card.added .cover, .album-card.added .meta { opacity: .6; }
+.added-mark { color: var(--accent); }
 .add-state {
   color: var(--accent);
   font-size: .85rem;
   flex-shrink: 0;
   white-space: nowrap;
 }
-.album-card.added .add-state { color: var(--fg-dim); }
+
 
 /* ---------- 検索・フィルタ ---------- */
 
@@ -380,6 +385,27 @@ a { color: var(--accent); }
   box-shadow: 0 4px 16px rgba(0,0,0,.5);
 }
 .toast.error { background: var(--danger); }
+
+/* ---------- 削除確認ダイアログ ---------- */
+
+#confirm { z-index: 102; padding: 16px; }
+.confirm-box {
+  background: var(--bg2);
+  border-radius: var(--radius);
+  padding: 24px;
+  max-width: 420px;
+  width: 100%;
+  box-shadow: 0 8px 32px rgba(0,0,0,.6);
+}
+.confirm-box h3 { margin: 0 0 12px; font-size: 1.05rem; }
+.confirm-box p { margin: 0 0 8px; overflow-wrap: anywhere; }
+.confirm-note { color: var(--fg-dim); font-size: .85rem; }
+.confirm-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}
+.confirm-actions .btn { flex: 1; }
 
 /* ---------- PC / タブレット横(2ペイン) ---------- */
 
